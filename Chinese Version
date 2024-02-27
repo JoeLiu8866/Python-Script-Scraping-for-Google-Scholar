@@ -286,7 +286,7 @@ if __name__ == '__main__':
     max_pages = input('>> 请输入爬取多少页(最多为100): ').strip() or '100'
 # Google Scholar 最多支持100页搜索结果显示。
     sort_bydate = (input('>> 是否按日期排序(y/n, 默认否, 会覆盖年份): ').strip() or 'n')=='y'
-# 如果需要进行作者，摘要等内容读取，需要自行进行代码查找进行修改。
+# 如果需要进行作者，摘要等内容读取，需要自行进行代码查找进行修改。（Joe）
  
     out_filepath = '_'.join(keywords.replace('"', '').replace(':', '').split())
     
