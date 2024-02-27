@@ -1,4 +1,6 @@
 # -*- coding: gbk -*-
+# 在中文Windows环境下用此命令进行文件编码 (Joe)
+# 本代码使用需要下载安装Google浏览器。
 import random
 import time
 from selenium import webdriver
@@ -22,7 +24,7 @@ import nltk
 from nltk.corpus import stopwords
 nltk.download('punkt')
 nltk.download('stopwords')
-# 配置Python环境，引入Python库，如果系统中不存在库，需在系统CMD中使用 pip install XXX进行下载更新。
+# 配置Python环境，引入Python库，如果系统中不存在库，需在系统CMD中使用 pip install XXX进行下载更新。 (Joe)
  
  
 class Errors(Enum):
@@ -206,6 +208,7 @@ class Scholar:
     #     except Exception as e:
     #         if pyautogui.confirm(text=f'文件保存失败[{str(e)}]\n点击“确定”将内容复制到剪切板;\n否则, 点击“取消”直接结束脚本;', title='文件保存失败', buttons=['确定', '取消']) == '确定':
     #             pyperclip.copy(str(unique_data))
+
     def save_file(self, filename='scholar.xlsx', nodup=False):
         unique_data = self.results
         if nodup:
@@ -226,6 +229,7 @@ class Scholar:
             # 将错误信息复制到剪切板，只在GUI环境中适用
             if pyautogui.confirm(text=f'{error_message}\n点击“确定”将内容复制到剪切板;\n否则, 点击“取消”直接结束脚本;', title='文件保存失败', buttons=['确定', '取消']) == '确定':
                 pyperclip.copy(str(unique_data))
+# 对Excel文件是否存在进行排查，若没有则创建一个 （Joe）
 
  
     def statistical_information(self):
@@ -280,7 +284,9 @@ if __name__ == '__main__':
     as_ylo = input('>> 请输入开始年份(留空为1900): ').strip() or '1900'
     as_yhi = input('>> 请输入结束年份(留空为不限): ').strip()
     max_pages = input('>> 请输入爬取多少页(最多为100): ').strip() or '100'
+# Google Scholar 最多支持100页搜索结果显示。
     sort_bydate = (input('>> 是否按日期排序(y/n, 默认否, 会覆盖年份): ').strip() or 'n')=='y'
+# 如果需要进行作者，摘要等内容读取，需要自行进行代码查找进行修改。
  
     out_filepath = '_'.join(keywords.replace('"', '').replace(':', '').split())
     
