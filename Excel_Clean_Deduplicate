@@ -1,0 +1,17 @@
+# -*- coding: gbk -*-
+import pandas as pd
+
+#  Suppose there are three paths to Excel files
+excel_files = ['Rootpath1.xlsx','Rootpath2.xlsx','Rootpath3.xlsx']
+
+# Read each Excel file to the DataFrame and store it in the list
+dataframes = [pd.read_excel(file) for file in excel_files]
+
+# Merge all dataframes
+combined_df = pd.concat(dataframes, ignore_index=True)
+
+# Remove weights based on all columns
+unique_df = combined_df.drop_duplicates()
+
+# Save the de-duplicated data to a new Excel file
+unique_df.to_excel('New filepath.xlsx', index=False)
