@@ -1,0 +1,269 @@
+#-*- coding: gbk -*-
+# Use this command “-*- coding: gbk -*-” for file encoding in Chinese Windows environment (Joe)
+# This code requires downloading and installing Google Chrome.
+# Highly recommend using Windows because Because saving files on a Mac can cause problems with the path. (Joe)
+# Author and Abstract are not able to be scraped They are not complete in search page results (Joe)
+
+import random
+import time
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+import re
+from tqdm import tqdm
+import pyautogui
+from bs4 import BeautifulSoup
+import lxml
+import pandas as pd
+from enum import Enum
+import pyperclip
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+from collections import Counter
+import os
+import nltk
+from nltk.corpus import stopwords
+nltk.download('punkt')
+nltk.download('stopwords')
+# Set up the Python environment, import libraries, if libraries are not present in the system, use pip install XXX in system CMD to download/update. If you use Anaconda please make sure that all of libraries are installed in this environment (Joe)
+
+class Errors(Enum):
+    SUCCESS = 'Success'
+    SERVER_ERROR = 'Server Error'
+
+class Scholar:
+    def __init__(self, out_filepath) -> None:
+        self.out_filepath = out_filepath
+        if not os.path.exists(self.out_filepath):
+            os.mkdir(self.out_filepath)
+        self.driver = None
+        self.results = []
+
+    def start_browser(self, wait_time=10):
+        # Create ChromeOptions object
+        options = Options()
+        # Enable headless mode
+        # options.add_argument("--headless")
+        # Enable incognito mode
+        options.add_argument("--incognito")
+        # Additional configurations to optimize browser for scraping
+        options.add_argument("--disable-domain-reliability")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        # More browser configurations omitted for brevity
+        # Disable experimental QUIC protocol
+        options.add_experimental_option("excludeSwitches", ["enable-quic"])
+        # Create Chrome browser instance
+        self.driver = webdriver.Chrome(options=options, service=Service(ChromeDriverManager().install()))
+        self.driver.maximize_window()
+        # Wait for the page to load
+        self.driver.implicitly_wait(wait_time)
+
+    def __search_onepage(self):
+        """Scrape information of articles on the current page"""
+        results = []
+
+        if not self.check_element_exist(check_type='ID', value='gs_res_ccl_mid'):
+            print('>> No article list on the current page')
+            return []
+        gs_scl = self.driver.find_element(by=By.ID, value='gs_res_ccl_mid').find_elements(by=By.CLASS_NAME, value='gs_scl')
+        for i, item in tqdm(enumerate(gs_scl)):
+            gs_rt = item.find_element(by=By.CLASS_NAME, value='gs_rt')
+            gs_a = item.find_element(by=By.CLASS_NAME, value='gs_a')
+            gs_rt_a = gs_rt.find_element(by=By.TAG_NAME, value='a') if self.check_element_exist(check_type='TAG_NAME', value='a', source=gs_rt.get_attribute('innerHTML')) else None
+            publisher_info = gs_a.text.strip().replace('\n', '')
+            # Title
+            title = gs_rt.text.strip().replace('\n', '').split(']')[-1].strip()
+            # Herf
+            href = gs_rt_a.get_attribute('href') if gs_rt_a else ''
+            # Year
+            year = re.findall(r'\d{4}', publisher_info)
+            year = year[-1] if year else -1
+            
+            # print(f'[{i}] {title} => {href} => {publisher_info} => {year}')
+            results.append({'title': title, 'href':href, 'year': year})
+        # Article scraping logic omitted for brevity
+        return results
+
+    def check_element_exist(self, value, check_type='CLASS_NAME', source=None) -> bool:
+        """Check if a specific element exists on the page"""
+        page_source = source if source else self.driver.page_source
+        soup = BeautifulSoup(page_source, 'lxml')
+        # More checks omitted for brevity
+        if check_type == 'ID':
+            return len(soup.find_all(id=value)) != 0
+        elif check_type == 'CLASS_NAME':
+            return len(soup.find_all(class_=value)) != 0
+        elif check_type == 'TAG_NAME':
+            return len(soup.find_all(value)) != 0
+        elif check_type == 'FULL':
+            return value in page_source
+        else:
+            print(f'>> Incorrect check condition [{check_type}]')
+        return False
+
+    def check_captcha(self) -> bool:
+        """Check for CAPTCHA; one for Google Scholar and one for Google Search"""
+        return self.check_element_exist(check_type='ID', value='gs_captcha_f') or \
+               self.check_element_exist(check_type='ID', value='captcha-form')
+
+    def process_error(self, error: Errors) -> bool:
+        """Attempt to resolve errors as much as possible"""
+        success = False
+        if error == Errors.SERVER_ERROR:
+            pass
+        
+        return success
+    
+    def check_error(self, try_solve = True) -> Errors:
+        """Check if there's an error on the current page"""
+        error = Errors.SUCCESS
+        if self.check_element_exist(check_type='FULL', value='Server Error'):
+            error = Errors.SERVER_ERROR
+        
+        # Attempt to solve the error
+        if try_solve and error != Errors.SUCCESS:
+            error = Errors.SUCCESS if self.process_error(error) else error
+        return error
+
+    def __scroll2bottom(self):
+        # Scroll to the bottom of the page
+        self.driver.switch_to.default_content()
+        js = "var q=document.documentElement.scrollTop=100000"
+        self.driver.execute_script(js)
+
+    def search(self, keywords, sort_bydate=False, as_ylo='', as_yhi='', max_pages=100, delay=0):
+        keywords = keywords.replace(' ', '+')
+        sort_bydate = 'scisbd=1' if sort_bydate else ''
+        # Open Google Scholar website
+        url = f'https://scholar.google.com/scholar?{sort_bydate}&hl=en&as_sdt=0%2C5&q={keywords}&btnG=&as_ylo={as_ylo}&as_yhi={as_yhi}'
+        self.driver.get(url)
+        for _ in tqdm(range(1, max_pages+1), desc='Searching'):
+            while self.check_captcha():
+                pyautogui.alert(title='abnormal state', text='Please manually complete the man-machine verification, click "Finished.”', button='Finished')
+                self.driver.refresh()
+                time.sleep(2)
+            if self.check_error() != Errors.SUCCESS:
+                if pyautogui.confirm(text='Please check what is wrong with the page;\nAfter the solution, click "OK" to retry;\nOtherwise, click "Cancel" to end the script early;', title='abnormal state', buttons=['OK', 'Cancel']) == 'Cancel':
+                    print('>> Early closure')
+                    break
+                time.sleep(2)
+            
+            onepage = self.__search_onepage()
+            if not onepage:
+                print('>> The current page is empty. Try again')
+                self.driver.refresh()
+                time.sleep(2)
+                continue
+            
+            self.results.extend(onepage)
+            
+            if not self.check_element_exist(check_type='CLASS_NAME', value='gs_ico_nav_next'):
+                print('>> All finish')
+                break
+            self.__scroll2bottom()
+            time.sleep(0.1)
+            self.driver.find_element(by=By.CLASS_NAME, value="gs_ico_nav_next").click()
+            time.sleep(delay)
+        
+        total_num = self.driver.find_element(by=By.ID, value='gs_ab_md').find_element(by=By.CLASS_NAME, value='gs_ab_mdw').text.strip()  # .replace('\n', '').split(',')[:-1]
+        open(os.path.join(self.out_filepath, 'total_num.txt'), 'w+').write(''.join(total_num))
+        
+        
+        return self.results
+        # Search loop omitted for brevity
+
+    def close_browser(self):
+        # Close the browser
+        self.driver.quit()
+
+    def save_file(self, filename='scholar.xlsx', nodup=False):
+        unique_data = self.results
+        if nodup:
+            # Deduplicate based on 'href' field
+            unique_data = [dict(t) for t in {tuple(d.items()) for d in unique_data}]
+        print(f'>> Deduplication effect: {len(self.results)} => {len(unique_data)}')
+        try:
+            # Ensure the output path exists
+            if not os.path.exists(self.out_filepath):
+                os.makedirs(self.out_filepath, exist_ok=True)
+            # Save to Excel file
+            file_path = os.path.join(self.out_filepath, filename)
+            pd.DataFrame(unique_data).dropna().reset_index(drop=True).to_excel(file_path, index=False)
+            print(f'File successfully saved to {file_path}')
+        except Exception as e:
+            error_message = f'Failed to save file: {str(e)}'
+            print(error_message)
+            # Copy error message to clipboard, applicable only in GUI environments
+            if pyautogui.confirm(text=f'{error_message}\nClick "OK" to copy content to clipboard;\nOtherwise, click "Cancel" to end the script;', title='File Save Failed', buttons=['OK', 'Cancel']) == 'OK':
+                pyperclip.copy(str(unique_data))
+
+    def statistical_information(self):
+        pass
+
+class AnalyzeDraw:
+    def __init__(self, out_filepath, filename='scholar.xlsx') -> None:
+        self.out_filepath = out_filepath
+        if not os.path.exists(self.out_filepath):
+            os.mkdir(self.out_filepath)
+        self.filename = filename
+        self.df = pd.read_excel(os.path.join(self.out_filepath, filename))
+    
+    def draw_wordcloud(self):
+        """Generate a word cloud from the titles"""
+        # Define a set of English stopwords
+        english_stopwords = set(stopwords.words('english'))
+        # Clean and transform the 'title' column
+        self.df['title'] = self.df['title'].astype(str)
+        # Extract English title side by side except English content
+        english_titles = self.df['title'].apply(lambda x: ' '.join([word.lower() for word in nltk.word_tokenize(x) if word.isalpha() and word.lower() not in english_stopwords]))
+        # Combine all English headings into a single string
+        text = ' '.join(english_titles)
+        # Create a word cloud object
+        wc = WordCloud(width=800, height=400, background_color='white').generate(text)
+        wc.to_file(os.path.join(self.out_filepath, f'{self.filename}.jpg'))
+        # Logic to create word cloud from titles omitted for brevity
+
+    def draw_wordsfrequency(self):
+        # List of stopwords
+        stop_words = ['a', 'an', 'and', 'or', 'in', 'on', 'for', 'with', 'the', 'using', 'based', 
+                      'to', 'by', 'its', 'it', '&', 'as', 'via', 'base', 'improve', 'improved',]
+        # Tokenization and word frequency calculation logic omitted for brevity
+        # Word segmentation and word frequency calculation
+        word_counts = Counter(' '.join(self.df['title']).lower().split())
+        # Unstop word
+        for stop_word in stop_words:
+            word_counts.pop(stop_word, None)
+        # Sort by word frequency from highest to lowest
+        sorted_counts = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
+        # Extract words and frequencies
+        words = [item[0] for item in sorted_counts]
+        freqs = [item[1] for item in sorted_counts]
+ 
+        # Create a DataFrame to hold word frequency data
+        df_freq = pd.DataFrame({'Word': words, 'Frequency': freqs})
+        # Save word frequency data to Excel file
+        df_freq.to_excel(os.path.join(self.out_filepath, 'word_frequency.xlsx'), index=False)
+
+if __name__ == '__main__':
+    keywords = input('>> Please enter your search term: ').strip() or 'allintitle: Multimodal ("Graph Neural Network" OR GNN)'
+    as_ylo = input('>> Please enter the start year (leave 1900 blank): ').strip() or '1900'
+    as_yhi = input('>> Please enter the end year (leave blank as unlimited): ').strip()
+    max_pages = input('>> Please enter how many pages to crawl (maximum 100): ').strip() or '100'
+    sort_bydate = (input('>> Whether to sort by date (y/n, default no, overrides year): ').strip() or 'n')=='y'
+ 
+    out_filepath = '_'.join(keywords.replace('"', '').replace(':', '').split())
+    
+    scholar = Scholar(out_filepath)
+    scholar.start_browser(wait_time=60)
+    results = scholar.search(keywords, sort_bydate, as_ylo, as_yhi, max_pages=int(max_pages), delay=random.randint(0, 0)) 
+    scholar.close_browser()
+    scholar.save_file(nodup=True)
+    
+    
+    analyze = AnalyzeDraw(out_filepath)
+    analyze.draw_wordcloud()
+    analyze.draw_wordsfrequency()
+    # Main script logic omitted for brevity
+    print('>> all done <<')
